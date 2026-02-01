@@ -332,7 +332,13 @@ export async function queryLettaSDK(command, options = {}, ws) {
     const msg = err instanceof Error ? err.message : String(err);
     emit(ws, { type: 'letta-error', error: msg, sessionId: agentId });
   } finally {
-    // Note: we keep the session around for resume, but mark it inactive only if the
-    // session object has been explicitly closed/aborted. For now, keep it active.
+    // Close the local subprocess transport; the underlying Letta agent remains resumable
+    // via agentId on the next request.
+    try {
+      session.close?.();
+    } catch {
+      // ignore
+    }
+    activeSessions.delete(agentId);
   }
 }
