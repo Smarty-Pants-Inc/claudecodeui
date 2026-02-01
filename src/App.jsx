@@ -325,6 +325,8 @@ function AppContent() {
             newProject.fullPath !== prevProject.fullPath ||
             JSON.stringify(newProject.sessionMeta) !== JSON.stringify(prevProject.sessionMeta) ||
             JSON.stringify(newProject.sessions) !== JSON.stringify(prevProject.sessions) ||
+            JSON.stringify(newProject.codexSessions) !== JSON.stringify(prevProject.codexSessions) ||
+            JSON.stringify(newProject.lettaSessions) !== JSON.stringify(prevProject.lettaSessions) ||
             JSON.stringify(newProject.cursorSessions) !== JSON.stringify(prevProject.cursorSessions)
           );
         }) || data.length !== prevProjects.length;
@@ -377,6 +379,28 @@ function AppContent() {
           }
           return;
         }
+
+        // Also check Codex sessions
+        const codexSession = project.codexSessions?.find(s => s.id === sessionId);
+        if (codexSession) {
+          setSelectedProject(project);
+          setSelectedSession({ ...codexSession, __provider: 'codex' });
+          if (shouldSwitchTab) {
+            setActiveTab('chat');
+          }
+          return;
+        }
+
+        // Also check Letta sessions
+        const lettaSession = project.lettaSessions?.find(s => s.id === sessionId);
+        if (lettaSession) {
+          setSelectedProject(project);
+          setSelectedSession({ ...lettaSession, __provider: 'letta' });
+          if (shouldSwitchTab) {
+            setActiveTab('chat');
+          }
+          return;
+        }
       }
       
       // If session not found, it might be a newly created session
@@ -403,11 +427,16 @@ function AppContent() {
     }
 
     // For Cursor sessions, we need to set the session ID differently
-    // since they're persistent and not created by Claude
-    const provider = localStorage.getItem('selected-provider') || 'claude';
+    // since they're persistent and not created by Claude.
+    // Use the provider attached by Sidebar instead of localStorage, because
+    // provider switching happens inside ChatInterface after selection.
+    const provider = session.__provider || localStorage.getItem('selected-provider') || 'claude';
     if (provider === 'cursor') {
       // Cursor sessions have persistent IDs
       sessionStorage.setItem('cursorSessionId', session.id);
+    } else {
+      // Prevent stale Cursor session IDs from being reused for other providers
+      sessionStorage.removeItem('cursorSessionId');
     }
 
     // Only close sidebar on mobile if switching to a different project
@@ -442,15 +471,24 @@ function AppContent() {
     }
     
     // Update projects state locally instead of full refresh
-    setProjects(prevProjects => 
-      prevProjects.map(project => ({
-        ...project,
-        sessions: project.sessions?.filter(session => session.id !== sessionId) || [],
-        sessionMeta: {
-          ...project.sessionMeta,
-          total: Math.max(0, (project.sessionMeta?.total || 0) - 1)
-        }
-      }))
+    setProjects(prevProjects =>
+      prevProjects.map((project) => {
+        const prevClaudeSessions = project.sessions || [];
+        const nextClaudeSessions = prevClaudeSessions.filter(session => session.id !== sessionId);
+        const removedFromClaude = nextClaudeSessions.length !== prevClaudeSessions.length;
+
+        return {
+          ...project,
+          sessions: nextClaudeSessions,
+          codexSessions: (project.codexSessions || []).filter(session => session.id !== sessionId),
+          cursorSessions: (project.cursorSessions || []).filter(session => session.id !== sessionId),
+          lettaSessions: (project.lettaSessions || []).filter(session => session.id !== sessionId),
+          sessionMeta: removedFromClaude ? {
+            ...project.sessionMeta,
+            total: Math.max(0, (project.sessionMeta?.total || 0) - 1)
+          } : project.sessionMeta
+        };
+      })
     );
   };
 

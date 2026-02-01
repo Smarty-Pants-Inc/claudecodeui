@@ -21,6 +21,8 @@ import GitPanel from './GitPanel';
 import ErrorBoundary from './ErrorBoundary';
 import ClaudeLogo from './ClaudeLogo';
 import CursorLogo from './CursorLogo';
+import CodexLogo from './CodexLogo';
+import LettaLogo from './LettaLogo.jsx';
 import TaskList from './TaskList';
 import TaskDetail from './TaskDetail';
 import PRDEditor from './PRDEditor';
@@ -315,6 +317,10 @@ function MainContent({
                 <div className="w-5 h-5 flex-shrink-0 flex items-center justify-center">
                   {selectedSession.__provider === 'cursor' ? (
                     <CursorLogo className="w-4 h-4" />
+                  ) : selectedSession.__provider === 'codex' ? (
+                    <CodexLogo className="w-4 h-4" />
+                  ) : selectedSession.__provider === 'letta' ? (
+                    <LettaLogo className="w-4 h-4" />
                   ) : (
                     <ClaudeLogo className="w-4 h-4" />
                   )}

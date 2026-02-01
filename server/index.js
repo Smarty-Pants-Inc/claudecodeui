@@ -59,6 +59,7 @@ import mime from 'mime-types';
 
 import { getProjects, getSessions, getSessionMessages, renameProject, deleteSession, deleteProject, addProjectManually, extractProjectDirectory, clearProjectDirectoryCache } from './projects.js';
 import { queryClaudeSDK, abortClaudeSDKSession, isClaudeSDKSessionActive, getActiveClaudeSDKSessions, resolveToolApproval } from './claude-sdk.js';
+import { queryLettaSDK, abortLettaSDKSession, isLettaSDKSessionActive, getActiveLettaSDKSessions, resolveLettaToolApproval } from './letta-sdk.js';
 import { spawnCursor, abortCursorSession, isCursorSessionActive, getActiveCursorSessions } from './cursor-cli.js';
 import { queryCodex, abortCodexSession, isCodexSessionActive, getActiveCodexSessions } from './openai-codex.js';
 import gitRoutes from './routes/git.js';
@@ -859,6 +860,11 @@ function handleChatConnection(ws) {
 
                 // Use Claude Agents SDK
                 await queryClaudeSDK(data.command, data.options, writer);
+            } else if (data.type === 'letta-command') {
+                console.log('[DEBUG] Letta message:', data.command || '[Continue/Resume]');
+                console.log('📁 Project:', data.options?.projectPath || data.options?.cwd || 'Unknown');
+                console.log('🔄 Session:', data.options?.sessionId ? 'Resume' : 'New');
+                await queryLettaSDK(data.command, data.options, writer);
             } else if (data.type === 'cursor-command') {
                 console.log('[DEBUG] Cursor message:', data.command || '[Continue/Resume]');
                 console.log('📁 Project:', data.options?.cwd || 'Unknown');
@@ -888,6 +894,8 @@ function handleChatConnection(ws) {
                     success = abortCursorSession(data.sessionId);
                 } else if (provider === 'codex') {
                     success = abortCodexSession(data.sessionId);
+                } else if (provider === 'letta') {
+                    success = await abortLettaSDKSession(data.sessionId);
                 } else {
                     // Use Claude Agents SDK
                     success = await abortClaudeSDKSession(data.sessionId);
@@ -905,6 +913,14 @@ function handleChatConnection(ws) {
                 // introduced so the SDK can resume once the user clicks Allow/Deny.
                 if (data.requestId) {
                     resolveToolApproval(data.requestId, {
+                        allow: Boolean(data.allow),
+                        updatedInput: data.updatedInput,
+                        message: data.message,
+                        rememberEntry: data.rememberEntry
+                    });
+
+                    // Letta uses the same UI message type; its request IDs are prefixed with "letta_".
+                    resolveLettaToolApproval(data.requestId, {
                         allow: Boolean(data.allow),
                         updatedInput: data.updatedInput,
                         message: data.message,
@@ -930,6 +946,8 @@ function handleChatConnection(ws) {
                     isActive = isCursorSessionActive(sessionId);
                 } else if (provider === 'codex') {
                     isActive = isCodexSessionActive(sessionId);
+                } else if (provider === 'letta') {
+                    isActive = isLettaSDKSessionActive(sessionId);
                 } else {
                     // Use Claude Agents SDK
                     isActive = isClaudeSDKSessionActive(sessionId);
@@ -946,7 +964,8 @@ function handleChatConnection(ws) {
                 const activeSessions = {
                     claude: getActiveClaudeSDKSessions(),
                     cursor: getActiveCursorSessions(),
-                    codex: getActiveCodexSessions()
+                    codex: getActiveCodexSessions(),
+                    letta: getActiveLettaSDKSessions()
                 };
                 writer.send({
                     type: 'active-sessions',

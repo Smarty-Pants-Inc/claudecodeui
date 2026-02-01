@@ -10,7 +10,8 @@
     "tool": "Tool",
     "claude": "Claude",
     "cursor": "Cursor",
-    "codex": "Codex"
+    "codex": "Codex",
+    "letta": "Letta Code"
   },
   "tools": {
     "settings": "Tool Settings",
@@ -151,12 +152,14 @@
     "providerInfo": {
       "anthropic": "by Anthropic",
       "openai": "by OpenAI",
-      "cursorEditor": "AI Code Editor"
+      "cursorEditor": "AI Code Editor",
+      "letta": "by Letta"
     },
     "readyPrompt": {
       "claude": "Ready to use Claude with {{model}}. Start typing your message below.",
       "cursor": "Ready to use Cursor with {{model}}. Start typing your message below.",
       "codex": "Ready to use Codex with {{model}}. Start typing your message below.",
+      "letta": "Ready to use Letta Code. Start typing your message below.",
       "default": "Select a provider above to begin"
     }
   },

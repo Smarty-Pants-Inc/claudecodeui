@@ -11,6 +11,7 @@ import { cn } from '../lib/utils';
 import ClaudeLogo from './ClaudeLogo';
 import CursorLogo from './CursorLogo.jsx';
 import CodexLogo from './CodexLogo.jsx';
+import LettaLogo from './LettaLogo.jsx';
 import TaskIndicator from './TaskIndicator';
 import ProjectCreationWizard from './ProjectCreationWizard';
 import { api } from '../utils/api';
@@ -225,19 +226,27 @@ function Sidebar({
     return starredProjects.has(projectName);
   };
 
+  const getSessionSortDate = (session) => {
+    const raw = session?.__provider === 'cursor'
+      ? (session.createdAt || session.lastActivity)
+      : (session?.__provider === 'codex' || session?.__provider === 'letta')
+        ? (session.lastActivity || session.createdAt)
+        : session.lastActivity;
+
+    const d = new Date(raw || 0);
+    return Number.isNaN(d.getTime()) ? new Date(0) : d;
+  };
+
   // Helper function to get all sessions for a project (initial + additional)
   const getAllSessions = (project) => {
-    // Combine Claude, Cursor, and Codex sessions; Sidebar will display icon per row
+    // Combine Claude, Cursor, Codex, and Letta sessions; Sidebar will display icon per row
     const claudeSessions = [...(project.sessions || []), ...(additionalSessions[project.name] || [])].map(s => ({ ...s, __provider: 'claude' }));
     const cursorSessions = (project.cursorSessions || []).map(s => ({ ...s, __provider: 'cursor' }));
     const codexSessions = (project.codexSessions || []).map(s => ({ ...s, __provider: 'codex' }));
-    // Sort by most recent activity/date
-    const normalizeDate = (s) => {
-      if (s.__provider === 'cursor') return new Date(s.createdAt);
-      if (s.__provider === 'codex') return new Date(s.createdAt || s.lastActivity);
-      return new Date(s.lastActivity);
-    };
-    return [...claudeSessions, ...cursorSessions, ...codexSessions].sort((a, b) => normalizeDate(b) - normalizeDate(a));
+    const lettaSessions = (project.lettaSessions || []).map(s => ({ ...s, __provider: 'letta' }));
+
+    return [...claudeSessions, ...cursorSessions, ...codexSessions, ...lettaSessions]
+      .sort((a, b) => getSessionSortDate(b) - getSessionSortDate(a));
   };
 
   // Helper function to get the last activity date for a project
@@ -249,7 +258,7 @@ function Sidebar({
     
     // Find the most recent session activity
     const mostRecentDate = allSessions.reduce((latest, session) => {
-      const sessionDate = new Date(session.lastActivity);
+      const sessionDate = getSessionSortDate(session);
       return sessionDate > latest ? sessionDate : latest;
     }, new Date(0));
     
@@ -1180,11 +1189,13 @@ function Sidebar({
                           // Handle Claude, Cursor, and Codex session formats
                           const isCursorSession = session.__provider === 'cursor';
                           const isCodexSession = session.__provider === 'codex';
+                          const isLettaSession = session.__provider === 'letta';
 
                           // Calculate if session is active (within last 10 minutes)
                           const getSessionDate = () => {
                             if (isCursorSession) return new Date(session.createdAt);
                             if (isCodexSession) return new Date(session.createdAt || session.lastActivity);
+                            if (isLettaSession) return new Date(session.createdAt || session.lastActivity);
                             return new Date(session.lastActivity);
                           };
                           const sessionDate = getSessionDate();
@@ -1195,12 +1206,14 @@ function Sidebar({
                           const getSessionName = () => {
                             if (isCursorSession) return session.name || t('projects.untitledSession');
                             if (isCodexSession) return session.summary || session.name || t('projects.codexSession');
+                            if (isLettaSession) return session.summary || session.name || t('projects.newSession');
                             return session.summary || t('projects.newSession');
                           };
                           const sessionName = getSessionName();
                           const getSessionTime = () => {
                             if (isCursorSession) return session.createdAt;
                             if (isCodexSession) return session.createdAt || session.lastActivity;
+                            if (isLettaSession) return session.createdAt || session.lastActivity;
                             return session.lastActivity;
                           };
                           const sessionTime = getSessionTime();
@@ -1240,6 +1253,8 @@ function Sidebar({
                                       <CursorLogo className="w-3 h-3" />
                                     ) : isCodexSession ? (
                                       <CodexLogo className="w-3 h-3" />
+                                    ) : isLettaSession ? (
+                                      <LettaLogo className="w-3 h-3" />
                                     ) : (
                                       <ClaudeLogo className="w-3 h-3" />
                                     )}
@@ -1264,6 +1279,8 @@ function Sidebar({
                                       <CursorLogo className="w-3 h-3" />
                                     ) : isCodexSession ? (
                                       <CodexLogo className="w-3 h-3" />
+                                    ) : isLettaSession ? (
+                                      <LettaLogo className="w-3 h-3" />
                                     ) : (
                                       <ClaudeLogo className="w-3 h-3" />
                                     )}
@@ -1302,6 +1319,8 @@ function Sidebar({
                                     <CursorLogo className="w-3 h-3 mt-0.5 flex-shrink-0" />
                                   ) : isCodexSession ? (
                                     <CodexLogo className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                                  ) : isLettaSession ? (
+                                    <LettaLogo className="w-3 h-3 mt-0.5 flex-shrink-0" />
                                   ) : (
                                     <ClaudeLogo className="w-3 h-3 mt-0.5 flex-shrink-0" />
                                   )}
@@ -1324,6 +1343,8 @@ function Sidebar({
                                           <CursorLogo className="w-3 h-3" />
                                         ) : isCodexSession ? (
                                           <CodexLogo className="w-3 h-3" />
+                                        ) : isLettaSession ? (
+                                          <LettaLogo className="w-3 h-3" />
                                         ) : (
                                           <ClaudeLogo className="w-3 h-3" />
                                         )}

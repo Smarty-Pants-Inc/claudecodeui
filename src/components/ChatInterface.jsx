@@ -28,6 +28,7 @@ import TodoList from './TodoList';
 import ClaudeLogo from './ClaudeLogo.jsx';
 import CursorLogo from './CursorLogo.jsx';
 import CodexLogo from './CodexLogo.jsx';
+import LettaLogo from './LettaLogo.jsx';
 import NextTaskBanner from './NextTaskBanner.jsx';
 import { useTasksSettings } from '../contexts/TasksSettingsContext';
 import { useTranslation } from 'react-i18next';
@@ -592,13 +593,15 @@ const MessageComponent = memo(({ message, index, prevMessage, createDiff, onFile
                     <CursorLogo className="w-full h-full" />
                   ) : (localStorage.getItem('selected-provider') || 'claude') === 'codex' ? (
                     <CodexLogo className="w-full h-full" />
+                  ) : (localStorage.getItem('selected-provider') || 'claude') === 'letta' ? (
+                    <LettaLogo className="w-full h-full" />
                   ) : (
                     <ClaudeLogo className="w-full h-full" />
                   )}
                 </div>
               )}
               <div className="text-sm font-medium text-gray-900 dark:text-white">
-                {message.type === 'error' ? t('messageTypes.error') : message.type === 'tool' ? t('messageTypes.tool') : ((localStorage.getItem('selected-provider') || 'claude') === 'cursor' ? t('messageTypes.cursor') : (localStorage.getItem('selected-provider') || 'claude') === 'codex' ? t('messageTypes.codex') : t('messageTypes.claude'))}
+                {message.type === 'error' ? t('messageTypes.error') : message.type === 'tool' ? t('messageTypes.tool') : ((localStorage.getItem('selected-provider') || 'claude') === 'cursor' ? t('messageTypes.cursor') : (localStorage.getItem('selected-provider') || 'claude') === 'codex' ? t('messageTypes.codex') : (localStorage.getItem('selected-provider') || 'claude') === 'letta' ? t('messageTypes.letta') : t('messageTypes.claude'))}
               </div>
             </div>
           )}
@@ -3253,14 +3256,16 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
       const lifecycleMessageTypes = new Set([
         'claude-complete',
         'codex-complete',
+        'letta-complete',
         'cursor-result',
         'session-aborted',
         'claude-error',
         'cursor-error',
-        'codex-error'
+        'codex-error',
+        'letta-error'
       ]);
 
-      const isClaudeSystemInit = latestMessage.type === 'claude-response' &&
+      const isClaudeSystemInit = (latestMessage.type === 'claude-response' || latestMessage.type === 'letta-response') &&
         messageData &&
         messageData.type === 'system' &&
         messageData.subtype === 'init';
@@ -3281,7 +3286,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
       const isUnscopedError = !latestMessage.sessionId &&
         pendingViewSessionRef.current &&
         !pendingViewSessionRef.current.sessionId &&
-        (latestMessage.type === 'claude-error' || latestMessage.type === 'cursor-error' || latestMessage.type === 'codex-error');
+        (latestMessage.type === 'claude-error' || latestMessage.type === 'cursor-error' || latestMessage.type === 'codex-error' || latestMessage.type === 'letta-error');
 
       const handleBackgroundLifecycle = (sessionId) => {
         if (!sessionId) return;
@@ -3353,6 +3358,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
           }
           break;
 
+        case 'letta-response':
         case 'claude-response':
           
           // Handle Cursor streaming format (content_block_delta / content_block_stop)
@@ -3579,7 +3585,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
           // Receive a tool approval request from the backend and surface it in the UI.
           // This does not approve anything automatically; it only queues a prompt,
           // introduced so the user can decide before the SDK continues.
-          if (provider !== 'claude' || !latestMessage.requestId) {
+          if (!['claude', 'letta'].includes(provider) || !latestMessage.requestId) {
             break;
           }
 
@@ -3621,6 +3627,32 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
             break;
           }
           setPendingPermissionRequests(prev => prev.filter(req => req.requestId !== latestMessage.requestId));
+          break;
+        }
+
+        case 'letta-error': {
+          const errorSessionId = latestMessage.sessionId || currentSessionId;
+
+          // Stop the spinner for Letta; some backends do not emit letta-complete after errors.
+          setIsLoading(false);
+          setCanAbortSession(false);
+          setClaudeStatus(null);
+          setPendingPermissionRequests([]);
+
+          if (errorSessionId) {
+            if (onSessionInactive) {
+              onSessionInactive(errorSessionId);
+            }
+            if (onSessionNotProcessing) {
+              onSessionNotProcessing(errorSessionId);
+            }
+          }
+
+          setChatMessages(prev => [...prev, {
+            type: 'error',
+            content: `Error: ${latestMessage.error}`,
+            timestamp: new Date()
+          }]);
           break;
         }
 
@@ -3788,6 +3820,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
           }
           break;
           
+        case 'letta-complete':
         case 'claude-complete':
           // Get session ID from message or fall back to current session
           const completedSessionId = latestMessage.sessionId || currentSessionId || sessionStorage.getItem('pendingSessionId');
@@ -4471,7 +4504,9 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
     setTimeout(() => scrollToBottom(), 100); // Longer delay to ensure message is rendered
 
     // Determine effective session id for replies to avoid race on state updates
-    const effectiveSessionId = currentSessionId || selectedSession?.id || sessionStorage.getItem('cursorSessionId');
+    const effectiveSessionId = provider === 'cursor'
+      ? (currentSessionId || selectedSession?.id || sessionStorage.getItem('cursorSessionId'))
+      : (currentSessionId || selectedSession?.id);
 
     // Session Protection: Mark session as active to prevent automatic project updates during conversation
     // Use existing session if available; otherwise a temporary placeholder until backend provides real ID
@@ -4536,6 +4571,22 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
           resume: !!effectiveSessionId,
           model: codexModel,
           permissionMode: permissionMode === 'plan' ? 'default' : permissionMode
+        }
+      });
+    } else if (provider === 'letta') {
+      // Send Letta Code command
+      sendMessage({
+        type: 'letta-command',
+        command: messageContent,
+        sessionId: effectiveSessionId,
+        options: {
+          cwd: selectedProject.fullPath || selectedProject.path,
+          projectPath: selectedProject.fullPath || selectedProject.path,
+          sessionId: effectiveSessionId,
+          resume: !!effectiveSessionId,
+          toolsSettings: toolsSettings,
+          permissionMode: permissionMode,
+          images: uploadedImages
         }
       });
     } else {
@@ -5053,6 +5104,38 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
                       </div>
                     )}
                   </button>
+
+                  {/* Letta Button */}
+                  <button
+                    onClick={() => {
+                      setProvider('letta');
+                      localStorage.setItem('selected-provider', 'letta');
+                      // Focus input after selection
+                      setTimeout(() => textareaRef.current?.focus(), 100);
+                    }}
+                    className={`group relative w-64 h-32 bg-white dark:bg-gray-800 rounded-xl border-2 transition-all duration-200 hover:scale-105 hover:shadow-xl ${
+                      provider === 'letta'
+                        ? 'border-emerald-500 shadow-lg ring-2 ring-emerald-500/20'
+                        : 'border-gray-200 dark:border-gray-700 hover:border-emerald-400'
+                    }`}
+                  >
+                    <div className="flex flex-col items-center justify-center h-full gap-3">
+                      <LettaLogo className="w-10 h-10" />
+                      <div>
+                        <p className="font-semibold text-gray-900 dark:text-white">Letta Code</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">{t('providerSelection.providerInfo.letta')}</p>
+                      </div>
+                    </div>
+                    {provider === 'letta' && (
+                      <div className="absolute top-2 right-2">
+                        <div className="w-5 h-5 bg-emerald-500 rounded-full flex items-center justify-center">
+                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                        </div>
+                      </div>
+                    )}
+                  </button>
                 </div>
 
                 {/* Model Selection - Always reserve space to prevent jumping */}
@@ -5088,6 +5171,14 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
                         <option key={value} value={value}>{label}</option>
                       ))}
                     </select>
+                  ) : provider === 'letta' ? (
+                    <select
+                      value="default"
+                      disabled
+                      className="pl-4 pr-10 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg opacity-80 cursor-not-allowed min-w-[140px]"
+                    >
+                      <option value="default">Default</option>
+                    </select>
                   ) : (
                     <select
                       value={cursorModel}
@@ -5113,6 +5204,8 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
                     ? t('providerSelection.readyPrompt.cursor', { model: cursorModel })
                     : provider === 'codex'
                     ? t('providerSelection.readyPrompt.codex', { model: codexModel })
+                    : provider === 'letta'
+                    ? t('providerSelection.readyPrompt.letta')
                     : t('providerSelection.readyPrompt.default')
                   }
                 </p>
@@ -5217,11 +5310,13 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
                     <CursorLogo className="w-full h-full" />
                   ) : (localStorage.getItem('selected-provider') || 'claude') === 'codex' ? (
                     <CodexLogo className="w-full h-full" />
+                  ) : (localStorage.getItem('selected-provider') || 'claude') === 'letta' ? (
+                    <LettaLogo className="w-full h-full" />
                   ) : (
                     <ClaudeLogo className="w-full h-full" />
                   )}
                 </div>
-                <div className="text-sm font-medium text-gray-900 dark:text-white">{(localStorage.getItem('selected-provider') || 'claude') === 'cursor' ? 'Cursor' : (localStorage.getItem('selected-provider') || 'claude') === 'codex' ? 'Codex' : 'Claude'}</div>
+                <div className="text-sm font-medium text-gray-900 dark:text-white">{(localStorage.getItem('selected-provider') || 'claude') === 'cursor' ? 'Cursor' : (localStorage.getItem('selected-provider') || 'claude') === 'codex' ? 'Codex' : (localStorage.getItem('selected-provider') || 'claude') === 'letta' ? 'Letta Code' : 'Claude'}</div>
                 {/* Abort button removed - functionality not yet implemented at backend */}
               </div>
               <div className="w-full text-sm text-gray-500 dark:text-gray-400 pl-3 sm:pl-0">
@@ -5617,7 +5712,7 @@ function ChatInterface({ selectedProject, selectedSession, ws, sendMessage, mess
                 const isExpanded = e.target.scrollHeight > lineHeight * 2;
                 setIsTextareaExpanded(isExpanded);
               }}
-              placeholder={t('input.placeholder', { provider: provider === 'cursor' ? t('messageTypes.cursor') : provider === 'codex' ? t('messageTypes.codex') : t('messageTypes.claude') })}
+              placeholder={t('input.placeholder', { provider: provider === 'cursor' ? t('messageTypes.cursor') : provider === 'codex' ? t('messageTypes.codex') : provider === 'letta' ? t('messageTypes.letta') : t('messageTypes.claude') })}
               disabled={isLoading}
               className="chat-input-placeholder block w-full pl-12 pr-20 sm:pr-40 py-1.5 sm:py-4 bg-transparent rounded-2xl focus:outline-none text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 disabled:opacity-50 resize-none min-h-[50px] sm:min-h-[80px] max-h-[40vh] sm:max-h-[300px] overflow-y-auto text-base leading-6 transition-all duration-200"
               style={{ height: '50px' }}
